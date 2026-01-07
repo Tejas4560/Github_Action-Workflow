@@ -1,0 +1,100 @@
+# ============================================
+# GitHub Actions Workflow for CI/CD Pipeline
+# ============================================
+# This workflow automates testing, building, and publishing a Dockerized Flask app
+
+name: CI/CD for Dockerized Flask App
+
+# ============================================
+# TRIGGERS: When should this workflow run?
+# ============================================
+on:
+  push:
+    branches: [ main ]      # Run when code is pushed to main branch
+  pull_request:
+    branches: [ main ]      # Run when a pull request targets main branch
+
+# ============================================
+# JOBS: The actual work to be done
+# ============================================
+jobs:
+  # ------------------------------------------
+  # JOB 1: Quick Docker Build Test
+  # ------------------------------------------
+  # Purpose: Verify that the Docker image can be built successfully
+  # This is a fast sanity check before running more expensive operations
+  dockerbuild:
+    runs-on: ubuntu-latest  # Use Ubuntu virtual machine
+    steps:
+    - uses: actions/checkout@v4  # Download the repository code
+    
+    - name: Build The Docker Image
+      # Build Docker image with a timestamp tag
+      # This doesn't push the image, just verifies it builds
+      run: docker build . --file Dockerfile --tag workflow-test:$(date +%s)
+
+  # ------------------------------------------
+  # JOB 2: Build and Test Python Application
+  # ------------------------------------------
+  # Purpose: Install dependencies and run automated tests
+  # This ensures code quality before deployment
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3  # Download repository code
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4  # Install Python
+      with:
+        python-version: '3.9'  # Specify Python version
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip  # Update pip
+        pip install flask   # Install Flask framework
+        pip install pytest  # Install testing framework
+    
+    - name: Run tests
+      run: |
+        pytest  # Execute all tests in test_app.py
+        # If tests fail, the workflow stops here!
+
+  # ------------------------------------------
+  # JOB 3: Build and Publish to Docker Hub
+  # ------------------------------------------
+  # Purpose: Build the final Docker image and push to Docker Hub
+  # This only runs if the tests pass (see 'needs' below)
+  build-and-publish:
+    needs: build-and-test  # IMPORTANT: Only run if build-and-test succeeds
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2  # Advanced Docker builder
+    
+    - name: Login to DockerHub
+      uses: docker/login-action@v2
+      with:
+        # SECRETS: These are configured in GitHub repository settings
+        # Never hardcode credentials in workflow files!
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .              # Build from current directory
+        file: ./Dockerfile      # Use this Dockerfile
+        push: true              # Push to Docker Hub after building
+        tags: ${{ secrets.DOCKER_USERNAME }}/flasktest-app:latest
+        # Tag format: username/repository:tag
+    
+    - name: Image digest
+      # Print the unique identifier of the published image
+      run: echo ${{ steps.build-and-publish.outputs.digest }}
+
